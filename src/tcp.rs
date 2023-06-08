@@ -1,9 +1,13 @@
 use bus::{Bus, BusReader};
 use crossbeam_channel::{Receiver, Sender};
 use std::{
+    convert::From,
+    fmt,
+    fmt::Display,
     io,
     io::{Read, Write},
-    net::{TcpListener, TcpStream},
+    net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs},
+    option,
     sync::{Arc, Mutex},
     thread,
     time::Duration,
@@ -15,14 +19,46 @@ pub struct Command {
     action: Action,
 }
 
+#[derive(Debug, Copy, Clone)]
+struct Address(SocketAddr);
+
+impl Display for Address {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        self.0.fmt(f)
+    }
+}
+
+impl From<u16> for Address {
+    fn from(port: u16) -> Self {
+        Address(SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+            port,
+        ))
+    }
+}
+
+impl ToSocketAddrs for Address {
+    type Iter = option::IntoIter<SocketAddr>;
+    fn to_socket_addrs(&self) -> io::Result<option::IntoIter<SocketAddr>> {
+        self.0.to_socket_addrs()
+    }
+}
+
+#[derive(Debug)]
+enum State {
+    Listening(Address),
+    Established { src: Address, dst: Address },
+}
+
 #[derive(Debug)]
 enum Action {
-    Start(TcpListener),
+    Listen(TcpListener),
     Close,
 }
 
 pub async fn close(port: u16, tx: Sender<Command>) {
-    info!("Closing server at 127.0.0.1:{port}");
+    let addr: Address = port.into();
+    info!("Closing listener at {addr}");
 
     tx.send(Command {
         port,
@@ -32,12 +68,12 @@ pub async fn close(port: u16, tx: Sender<Command>) {
 }
 
 pub fn bind(port: u16, tx: Sender<Command>) -> Result<bool, String> {
-    let addr = format!("127.0.0.1:{port}");
-    info!("Starting TCP server at {addr}");
+    let addr: Address = port.into();
+    info!("Binding {addr}.");
 
-    let listener = TcpListener::bind(&addr);
+    let listener = TcpListener::bind(addr);
     if let Err(e) = listener {
-        let err_msg = format!("Cannot start a new TCP server at {addr}. Error: {e}");
+        let err_msg = format!("Cannot bind {addr}. Error: {e}");
         error!("{err_msg}");
         return Err(err_msg);
     }
@@ -45,7 +81,7 @@ pub fn bind(port: u16, tx: Sender<Command>) -> Result<bool, String> {
     let listener = listener.unwrap();
     tx.send(Command {
         port,
-        action: Action::Start(listener),
+        action: Action::Listen(listener),
     })
     .unwrap();
 
@@ -64,7 +100,7 @@ pub fn bootstrap(
         let servers = servers.clone();
         let bus_close = bus_close.clone();
         match command.action {
-            Action::Start(l) => {
+            Action::Listen(l) => {
                 let p = command.port;
                 let addr = format!("127.0.0.1:{p}");
                 let mut acpt_close_rx = bus_close.lock().unwrap().add_rx();
