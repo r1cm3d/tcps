@@ -7,30 +7,30 @@ async fn status() -> impl Responder {
     HttpResponse::Ok().body("OK")
 }
 
-#[get("/servers")]
-async fn get_servers(data: web::Data<crate::AppData>) -> impl Responder {
+#[get("/listeners")]
+async fn get_listeners(data: web::Data<crate::AppData>) -> impl Responder {
     // TODO: Handle it properly later.
-    let servers = &data.servers.lock().unwrap();
-    HttpResponse::Ok().body(format!("Servers: {:?}", servers))
+    let listeners = &data.listeners.lock().unwrap();
+    HttpResponse::Ok().body(format!("Listeners: {:?}", listeners))
 }
 
-#[put("/server/{port}")]
-async fn start(data: web::Data<crate::AppData>, path: web::Path<u16>) -> impl Responder {
+#[put("/listener/{port}")]
+async fn listen(data: web::Data<crate::AppData>, path: web::Path<u16>) -> impl Responder {
     let port = path.into_inner();
     let tx = data.tx.clone();
 
     match tcp::bind(port, tx) {
-        Ok(_) => HttpResponse::Ok().body("Server is running."),
+        Ok(_) => HttpResponse::Ok().body(format!("Listening at {port}.")),
         Err(msg) => HttpResponse::InternalServerError().body(msg),
     }
 }
 
-#[delete("/server/{port}")]
-async fn close(data: web::Data<crate::AppData>, path: web::Path<u16>) -> impl Responder {
+#[delete("/listener/{port}")]
+async fn stop(data: web::Data<crate::AppData>, path: web::Path<u16>) -> impl Responder {
     let port = path.into_inner();
     let tx = data.tx.clone();
 
-    tcp::close(port, tx).await;
+    tcp::stop(port, tx).await;
 
-    HttpResponse::Accepted().body("Close command has been sent.")
+    HttpResponse::Accepted().body(format!("Stopping to listen at {port}."))
 }

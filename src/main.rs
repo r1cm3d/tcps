@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
 struct AppData {
-    servers: Arc<Mutex<Vec<u16>>>,
+    listeners: Arc<Mutex<Vec<u16>>>,
     tx: Sender<tcp::Command>,
 }
 
@@ -26,13 +26,13 @@ async fn main() -> std::io::Result<()> {
     let (tx, rx) = unbounded();
     // TODO: Change it, bus capacity must be a variable.
     let bus_close = Arc::new(Mutex::new(Bus::<u16>::new(100)));
-    let servers = Arc::new(Mutex::new(Vec::new()));
+    let listeners = Arc::new(Mutex::new(Vec::new()));
     info!("Bootstrapping the application");
 
-    tcp::bootstrap(rx, bus_close.clone(), servers.clone());
+    tcp::bootstrap(rx, bus_close.clone(), listeners.clone());
 
     let app_data = AppData {
-        servers,
+        listeners,
         tx: tx.clone(),
     };
 
@@ -42,9 +42,9 @@ async fn main() -> std::io::Result<()> {
             .wrap(Logger::default())
             .wrap(Logger::new("%a %{User-Agent}i"))
             .service(http::status)
-            .service(http::get_servers)
-            .service(http::start)
-            .service(http::close)
+            .service(http::get_listeners)
+            .service(http::listen)
+            .service(http::stop)
     })
     .bind(("0.0.0.0", 8080))?
     .run()
